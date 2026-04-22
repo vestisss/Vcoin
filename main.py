@@ -1,8 +1,17 @@
-from pyrogram import Client, filters, enums
-from aiohttp import web
-from datetime import datetime
 import asyncio
 import os
+from datetime import datetime
+from aiohttp import web
+
+# === ПАТЧ ДЛЯ RENDER И НОВЫХ ВЕРСИЙ PYTHON ===
+# Создаем event loop ДО импорта pyrogram, чтобы он не крашился при инициализации
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
+# ==============================================
+
+from pyrogram import Client, filters, enums
 
 # === Твои данные (вшиты намертво) ===
 API_ID = 36448320
@@ -158,9 +167,9 @@ async def keep_alive_server():
     async def handle_request(request):
         return web.Response(text="Jane Doe is watching...")
 
-    app = web.Application()
-    app.router.add_get('/', handle_request)
-    runner = web.AppRunner(app)
+    web_app = web.Application()
+    web_app.router.add_get('/', handle_request)
+    runner = web.AppRunner(web_app)
     await runner.setup()
     
     # Render автоматически задает переменную окружения PORT
@@ -179,4 +188,5 @@ async def main():
         await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    app.run(main())
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
