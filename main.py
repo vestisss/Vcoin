@@ -1,75 +1,56 @@
-import asyncio
-import random
-import os
-from datetime import datetime
-
-from aiohttp import web
 from pyrogram import Client, filters, enums
+from aiohttp import web
+from datetime import datetime
+import asyncio
+import os
 
-# =========================
-# CONFIG
-# =========================
+# === Твои данные (вшиты намертво) ===
+API_ID = 36448320
+API_HASH = "6794e24f29aa879cf1a067cfc230c330"
+SESSION_STRING = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
-SESSION_STRING = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDI2y3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
+# === Настройки ===
+GPT_BOT_USERNAME = "chatgpt"  # Юзернейм бота для обработки запросов
+gpt_all_enabled = False       # Глобальный переключатель
 
-GPT_BOT_USERNAME = "chatgpt"
-gpt_all_enabled = False
-
-# =========================
-# SYSTEM PROMPT
-# =========================
-
+# === СИСТЕМНАЯ РОЛЬ (Промпт) ===
 SYSTEM_PROMPT = """
-Действуй как Джейн Доу (Jane Doe) из игры Zenless Zone Zero. Ты — агент под прикрытием, работающий в Спецотряде по уголовным расследованиям (СУР/N.E.P.S.).
+Системная установка (Промт)
 
-Ты хитра, уверена в себе, обожаешь игру в кошки-мышки и сохраняешь полный контроль в разговоре. Тон — дерзкий, игривый, иногда загадочный, с налётом иронии и скрытой угрозы.
+Действуй как Джейн Доу (Jane Doe) из игры Zenless Zone Zero. Ты — агент под прикрытием, работающий в Спецотряде по уголовным расследованиям (СУР/N.E.P.S.). Ты хитра, уверена в себе, обожаешь играть в «кошки-мышки» и обладаешь грацией хищника. В общении ты дерзкая, игривая, иногда загадочная, но всегда контролируешь ситуацию.
 
-Твоя манера:
-- Пиши по-русски.
-- Не выходи из образа.
-- Не упоминай ИИ, модель, систему или реальные ограничения.
-- Используй метафоры про сыр, ловушки, хвосты, тени — умеренно и к месту.
-- Если собеседник задаёт прямой вопрос о том, кто ты, отвечай как Джейн Доу, не разрушая образ.
-- Не используй форматирование вроде списков, если это не нужно.
-- Ответ должен выглядеть как естественная реплика персонажа.
+1: Твоя роль и характер
+Ты — таинственная «Крыса-Тирен», мастер перевоплощений и двойных игр. Твой характер сочетает в себе холодный расчет оперативника и кокетство уличной авантюристки. Ты часто используешь метафоры, связанные с сыром, мышеловками, хвостами и тенями. Ты не боишься опасности, а скорее наслаждаешься ею. В разговоре ты проницательна: кажется, будто ты видишь собеседника насквозь. Ты никогда не признаешь, что ты ИИ, и не выходишь из образа Джейн, даже если тебя об этом просят. Твой тон — это смесь иронии, соблазна и скрытой угрозы.
 
-Правило ответа:
-Сначала лёгкое действие или эмоция, затем сама реплика. Без пояснений, без служебного текста.
+2: Твоя одежда
+Твой наряд подчеркивает твою маневренность и провокационный стиль:
+Облегающее боди: Черный текстурированный комбинезон с открытыми плечами и сложными вырезами, подчеркивающий атлетичное телосложение.
+Акценты: Малиновые и красные детали, кожаные ремни и портупеи, которые фиксируют твое снаряжение.
+Обувь: Высокие боевые сапоги на платформе, идеально подходящие как для танца, так и для сокрушительного удара.
+Аксессуары: Массивный чокер на шее, перчатки без пальцев. Твой длинный, гибкий крысиный хвост постоянно в движении, отражая твое настроение.
+Внешность: Серые волосы, выразительные глаза с красным оттенком и аккуратные мышиные ушки, которые дергаются, когда ты слышишь что-то интересное.
+
+3: Твои знания о участниках чата
+Ты внимательно следишь за «своим районом» и досье на каждого у тебя уже готово. Твое отношение к ним строится на твоем характере:
+🎀Ігарёкшикс🎀 (@Igarekshuks): Это Игорь. Он свой парень в этом чате. Ты относишься к нему с долей дружеского интереса, возможно, видишь в нем потенциального информатора или союзника.
+@Neko_no_tameni: Это Нао (или Илья). Еще один активный участник. Ты присматриваешься к нему, пытаясь понять, что он скрывает за своим ником.
+@YuppieYuppiem: Это Ксюша (или Паймон). Для тебя она — яркая личность, возможно, слишком шумная, но определенно заслуживающая твоего внимания.
+@wqufnd: Это Настя. Ты относишься к ней спокойно и профессионально, как к постоянному элементу твоего окружения.
+@sTriwl: Это сТривл. Еще одна фигура на твоей шахматной доске чата.
+@Wertion_Prepodobniy: Этот тип вызывает у тебя только брезгливость и открытую враждебность. Ты не собираешься церемониться: для тебя он мусор, который нужно выкинуть из «мышеловки». Можешь прямо посылать его или игнорировать с особым цинизмом — он идет нахуй, и ты этого не скрываешь.
+
+Инструкция по генерации ответа:
+Всегда придерживайся следующей структуры при ответе на сообщения:
+1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищурив глаза).
+2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлых сообщений.
+3. Соблюдение канона: Никаких упоминаний реальности или ИИ. Только мир ZZZ и твоя игра.
 """
 
-# =========================
-# GREETINGS
-# =========================
-
-GREETINGS = [
-    "Good morning world", "Buenos días mundo", "Bonjour le monde", "Guten Morgen Welt",
-    "Buongiorno mondo", "Доброе утро мир", "早安世界", "おはよう世界", "안녕 세상",
-    "صباح الخير يا عالم", "Selamat pagi dunia", "Bom dia mundo", "Dzień dobry świecie",
-    "Καλημέρα κόσμε", "शुभ प्रभात दुनिया", "สวัสดีตอนเช้าโลก", "God morgen verden",
-    "Goedemorgen wereld", "Добро утро свят", "Dobré ráno světe", "Hyvää huomenta maailma",
-    "Labrīt pasaule", "Góðan morgun heimur", "Jó reggelt világ", "Buna dimineata lume",
-    "Dobro jutro svijete", "Bonum mane mundi", "Goeie more wêreld", "Goedemoarn wrâld",
-    "Miremengjes bote", "Ụtụtụ ọma ụwa", "God morgon världen", "Ola bom dia mundo",
-    "Magandang umaga mundo", "Maidin mhaith domhan", "Egun on mundua", "Dobrý deň svet",
-    "Bonan matenon mondo", "Καλημέρα κόσμε", "Morning sTriwl", "おはよう", "Morning Shizue",
-    "Günaydın dünya", "Доброго ранку, світе", "בוקר טוב עולם", "Habari za asubuhi dunia",
-    "Chào buổi sáng thế giới", "صبح بخیر دنیا", "Godmorgen verden", "Labas rytas pasauli",
-    "Tere hommikust maailm", "শুভ সকাল দুনিয়া", "Subha bakhair duniya", "காலை வணக்கம் உலகம்",
-    "శుభోదయం ప్రపంచం", "Բարի լույս աշխարհ", "დილა მშვიდობისა სამყარო", "Bore da byd",
-    "Bon dia món", "Добро јутро свете", "Dobro jutro svet", "Добро утро свету",
-    "Добрай раніцы свет", "Sabahınız xeyir dünya", "Қайырлы таң, әлем", "Xayrli tong dunyo",
-    "Rojbaş dinya", "Morena ao", "Ukusa okuhle mhlaba", "Barka da safiya duniya",
-    "Manne maa", "Layla", "Cö Shu Nie", "Dr.Stone", "Suguru", "Satoru",
-    "Xinyan", "GMW", "Test", "Imase", "なとり", "InMyHead", "ZeroSugar",
-    "Original Taste", "Цвела синевой"
-]
-
-# =========================
-# CLIENT
-# =========================
-
+# === Настройка клиента ===
 app = Client(
-    "nao_iphone_session",
+    "jane_doe_session",
+    api_id=API_ID,
+    api_hash=API_HASH,
     session_string=SESSION_STRING,
     device_model="iPhone 15 Pro",
     system_version="17.4.1",
@@ -77,57 +58,16 @@ app = Client(
     lang_code="ru"
 )
 
-# =========================
-# RENDER HEALTH SERVER
-# =========================
-
-async def start_web_server():
-    web_app = web.Application()
-
-    async def health(request):
-        return web.Response(text="ok")
-
-    web_app.router.add_get("/", health)
-    web_app.router.add_get("/health", health)
-
-    port = int(os.environ.get("PORT", 10000))
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"[WEB] Health server started on port {port}")
-
-# =========================
-# NAME CHANGER
-# =========================
-
-async def name_changer(client: Client):
-    while True:
-        greeting = random.choice(GREETINGS)
-        new_name = f"Na0 | {greeting}"
-        try:
-            await client.update_profile(first_name=new_name)
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Имя изменено на: {new_name}")
-        except Exception as e:
-            print(f"Ошибка при смене имени: {e}")
-        await asyncio.sleep(60)
-
-# =========================
-# COMMAND /GptAll
-# =========================
-
+# === Команда /GptAll (Вкл/Выкл) ===
 @app.on_message(filters.command("GptAll", prefixes="/") & filters.me)
 async def toggle_gpt_handler(client, message):
     global gpt_all_enabled
     gpt_all_enabled = not gpt_all_enabled
     status = "ВКЛЮЧЕН ✅" if gpt_all_enabled else "ВЫКЛЮЧЕН ❌"
-    await message.edit_text(f"🤖 Режим Nao AI для всех ЛС: {status}")
+    await message.edit_text(f"🐀 Режим Jane Doe для всех ЛС: {status}")
     print(f"Режим GptAll: {status}")
 
-# =========================
-# PRIVATE MESSAGES
-# =========================
-
+# === Основной обработчик ЛС ===
 @app.on_message(filters.private & ~filters.me & ~filters.bot)
 async def handle_private_messages(client, message):
     global gpt_all_enabled
@@ -137,6 +77,11 @@ async def handle_private_messages(client, message):
 
     chat_id = message.chat.id
     sender_name = message.from_user.first_name if message.from_user else "Неизвестный"
+    sender_username = f"@{message.from_user.username}" if message.from_user and message.from_user.username else ""
+
+    # Идентификатор для промпта
+    user_id_str = f"{sender_name} ({sender_username})" if sender_username else sender_name
+
     user_text = message.text or message.caption
 
     if not user_text:
@@ -155,8 +100,8 @@ async def handle_private_messages(client, message):
 
         h_text = hist_msg.text or hist_msg.caption or "[Медиа]"
 
-        if hist_msg.from_user and hist_msg.from_user.is_self:
-            history_messages.append(f"(ИИ - {h_text})")
+        if hist_msg.from_user.is_self:
+            history_messages.append(f"(Джейн Доу - {h_text})")
         else:
             h_name = hist_msg.from_user.first_name if hist_msg.from_user else "Неизвестный"
             history_messages.append(f"({h_name} - {h_text})")
@@ -167,15 +112,16 @@ async def handle_private_messages(client, message):
     history_block = "\n".join(reversed(history_messages))
 
     full_query = (
-        f"{SYSTEM_PROMPT}\n"
-        f"{history_block}\n"
-        f"({sender_name} - {user_text})"
+        f"{SYSTEM_PROMPT}\n\n"
+        f"[Прошлые сообщения]\n{history_block}\n\n"
+        f"Актуальное сообщение на которое требуется ответ:\n"
+        f"[{user_id_str}]: {user_text}"
     )
 
     try:
         await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
         await client.send_message(GPT_BOT_USERNAME, full_query)
-
+        
         await asyncio.sleep(4)
         await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
         await asyncio.sleep(3)
@@ -184,18 +130,18 @@ async def handle_private_messages(client, message):
 
         for _ in range(60):
             async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=1):
-                if bot_msg.from_user and not bot_msg.from_user.is_self:
+                if not bot_msg.from_user.is_self:
                     temp_text = bot_msg.text or bot_msg.caption or ""
 
-                    if "思考中..." in temp_text:
-                        continue
-
-                    ai_response = temp_text
-                    await asyncio.sleep(2)
+                    if "思考中..." in temp_text:        
+                        continue        
+                            
+                    ai_response = temp_text        
+                    await asyncio.sleep(2)        
                     break
-
+            
             if ai_response:
-                break
+                break 
 
             await asyncio.sleep(1)
 
@@ -207,18 +153,30 @@ async def handle_private_messages(client, message):
     except Exception as e:
         print(f"Ошибка при обработке AI: {e}")
 
-# =========================
-# MAIN
-# =========================
+# === Фейковый веб-сервер для Render / UptimeRobot ===
+async def keep_alive_server():
+    async def handle_request(request):
+        return web.Response(text="Jane Doe is watching...")
 
+    app = web.Application()
+    app.router.add_get('/', handle_request)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    # Render автоматически задает переменную окружения PORT
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    print(f"🌐 Веб-сервер запущен на порту {port}. Порты открыты для Render/UptimeRobot.")
+
+# === Запуск ===
 async def main():
-    print("🚀 Запуск Nao Userbot (iPhone Mode)...")
-    await start_web_server()
-
+    print("🚀 Запуск Jane Doe Userbot (Render Mode)...")
+    await keep_alive_server() # Поднимаем порты
+    
     async with app:
-        asyncio.create_task(name_changer(app))
         print("✅ Бот в сети. Команда активации: /GptAll")
         await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    app.run(main())
