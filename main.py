@@ -2,7 +2,18 @@ import asyncio
 import os
 from datetime import datetime
 from aiohttp import web
+
+# === ПАТЧ ДЛЯ RENDER И НОВЫХ ВЕРСИЙ PYTHON ===
+# Создаем event loop ДО импорта pyrogram, чтобы он не крашился при инициализации
+try:
+    loop = asyncio.get_event_loop()
+except RuntimeError:
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+# ==============================================
+
 from pyrogram import Client, filters, enums, idle
+from pyrogram.errors import MessageNotModified
 
 # === Твои данные (вшиты намертво) ===
 API_ID = 36448320
@@ -65,35 +76,32 @@ async def toggle_gpt_handler(client, message):
     gpt_all_enabled = not gpt_all_enabled
     status = "ВКЛЮЧЕН ✅" if gpt_all_enabled else "ВЫКЛЮЧЕН ❌"
     await message.edit_text(f"🐀 Режим Jane Doe: {status}")
-    print(f"Режим GptAll: {status}")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Режим GptAll: {status}")
 
 # === Основной обработчик ЛС и ответов в группах ===
 @app.on_message((filters.private | filters.group) & ~filters.me & ~filters.bot)
-async def handle_private_messages(client, message):
+async def handle_messages(client, message):
     global gpt_all_enabled
 
     if not gpt_all_enabled:
         return
         
-    # === ЛОГИКА ГРУППОВЫХ ЧАТОВ ===
-    # Если пишут в группу, реагируем ТОЛЬКО если это реплай на наше сообщение (сообщение юзербота)
-    if message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP):
-        # Проверяем, есть ли реплай вообще
-        if not message.reply_to_message:
-            return
-        # Проверяем, есть ли автор у сообщения, на которое ответили (защита от анонимных админов/каналов)
-        if not message.reply_to_message.from_user:
-            return
-        # Проверяем, является ли автором сообщения сам юзербот
-        if not message.reply_to_message.from_user.is_self:
+    is_group = message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP)
+
+    # Если это группа, реагируем ТОЛЬКО если ответили на наше сообщение
+    if is_group:
+        # Безопасная проверка: есть ли реплай и принадлежит ли он нашему юзерботу
+        replied_msg = message.reply_to_message
+        if not replied_msg or not getattr(replied_msg.from_user, "is_self", False):
             return
 
     chat_id = message.chat.id
     sender_name = message.from_user.first_name if message.from_user else "Неизвестный"
     sender_username = f"@{message.from_user.username}" if message.from_user and message.from_user.username else ""
 
-    # Идентификатор для промпта
+    # Идентификатор пользователя для промпта
     user_id_str = f"{sender_name} ({sender_username})" if sender_username else sender_name
+
     user_text = message.text or message.caption
 
     if not user_text:
@@ -106,7 +114,7 @@ async def handle_private_messages(client, message):
 
     history_messages = []
 
-    # Собираем контекст из чата
+    # Собираем контекст общения
     async for hist_msg in client.get_chat_history(chat_id, limit=7):
         if hist_msg.id == message.id:
             continue
@@ -134,10 +142,10 @@ async def handle_private_messages(client, message):
     try:
         await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
         
-        # Обрезаем запрос, чтобы избежать ошибки лимита символов Telegram
+        # Обрезаем запрос во избежание лимитов Telegram
         safe_query = full_query[:4000]
         
-        # Отправляем запрос боту ChatGPT
+        # Отправляем запрос боту
         sent_to_bot = await client.send_message(GPT_BOT_USERNAME, safe_query)
         
         await asyncio.sleep(2)
@@ -146,17 +154,15 @@ async def handle_private_messages(client, message):
         ai_response = None
         bot_msg_id = None
 
-        # Ожидание ответа от бота
+        # Ждем ответ от ChatGPT
         for _ in range(60):
             async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
-                # Защита от NoneType
                 is_self = bot_msg.from_user.is_self if bot_msg.from_user else False
                 
-                # Ждем сообщение, которое новее нашего запроса и не от нас
+                # Ждем сообщение, которое новее нашего запроса
                 if bot_msg.id > sent_to_bot.id and not is_self:
                     temp_text = bot_msg.text or bot_msg.caption or ""
 
-                    # Игнорируем промежуточные состояния "думаю"
                     if "思考中..." in temp_text or "Thinking..." in temp_text or not temp_text:        
                         continue        
                             
@@ -170,65 +176,61 @@ async def handle_private_messages(client, message):
             await asyncio.sleep(1)
 
         if ai_response:
-            # Отправляем первичный ответ (реплаем на сообщение пользователя)
+            # Отправляем первичный ответ в чат
             sent_msg = await message.reply(ai_response)
             
-            # Динамически ждем обновления текста (если бот пишет кусками)
-            for _ in range(12): # Проверяем в течение ~24 секунд
+            # Динамически отслеживаем дописывание текста ботом
+            for _ in range(12): # Ждем до ~24 секунд суммарно
                 await asyncio.sleep(2)
                 async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
                     if bot_msg.id == bot_msg_id:
                         final_text = bot_msg.text or bot_msg.caption or ""
                         
-                        # Если текст поменялся и в нем нет мусора, обновляем
                         if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
                             try:
                                 await sent_msg.edit_text(final_text)
                                 ai_response = final_text 
-                            except Exception:
-                                pass
+                            except MessageNotModified:
+                                pass # Игнорируем, если текст не изменился
+                            except Exception as edit_err:
+                                print(f"Ошибка при обновлении текста: {edit_err}")
                         break
         else:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка: Бот не вернул ответ вовремя.")
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка: Бот @{GPT_BOT_USERNAME} не вернул ответ.")
 
     except Exception as e:
-        print(f"Ошибка при обработке AI: {e}")
-
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка при обработке AI: {e}")
 
 # === Фейковый веб-сервер для Render / UptimeRobot ===
 async def keep_alive_server():
     async def handle_request(request):
-        return web.Response(text="Jane Doe is watching... Systems online.")
+        return web.Response(text="Jane Doe is watching...")
 
     web_app = web.Application()
     web_app.router.add_get('/', handle_request)
     runner = web.AppRunner(web_app)
     await runner.setup()
     
-    # Render автоматически задает переменную окружения PORT
     port = int(os.environ.get("PORT", 8080))
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     print(f"🌐 Веб-сервер запущен на порту {port}. Порты открыты для Render/UptimeRobot.")
 
-
-# === Основной запуск ===
+# === Главная функция запуска ===
 async def main():
     print("🚀 Запуск Jane Doe Userbot (Render Mode)...")
     
-    # Запускаем веб-сервер асинхронно
-    await keep_alive_server() 
+    # Запускаем веб-сервер фоном, не блокируя выполнение Pyrogram
+    asyncio.create_task(keep_alive_server())
     
-    # Запускаем Pyrogram клиент
     await app.start()
     print("✅ Бот в сети. Команда активации: /GptAll")
     
-    # Нативный Idle от Pyrogram. Держит скрипт запущенным, не крашится от UptimeRobot.
+    # Используем встроенный idle() вместо костылей — он идеально держит бота в сети
     await idle()
     
-    # Корректное завершение при остановке
     await app.stop()
 
 if __name__ == "__main__":
-    # Чистый старт asyncio, поддерживаемый в новых версиях Python
-    asyncio.run(main())
+    # Запускаем через ранее созданный loop
+    loop.run_until_complete(main())
