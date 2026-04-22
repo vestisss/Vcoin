@@ -114,7 +114,7 @@ async def handle_private_messages(client, message):
 
         h_text = hist_msg.text or hist_msg.caption or "[Медиа]"
 
-        if hist_msg.from_user.is_self:
+        if hist_msg.from_user and hist_msg.from_user.is_self:
             history_messages.append(f"(Джейн Доу - {h_text})")
         else:
             h_name = hist_msg.from_user.first_name if hist_msg.from_user else "Неизвестный"
@@ -134,24 +134,34 @@ async def handle_private_messages(client, message):
 
     try:
         await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-        await client.send_message(GPT_BOT_USERNAME, full_query)
         
-        await asyncio.sleep(4)
+        # Обрезаем запрос, чтобы избежать ошибки лимита символов Telegram
+        safe_query = full_query[:4000]
+        
+        # Сохраняем отправленное сообщение, чтобы искать ответ строго после него
+        sent_to_bot = await client.send_message(GPT_BOT_USERNAME, safe_query)
+        
+        await asyncio.sleep(2)
         await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-        await asyncio.sleep(3)
 
         ai_response = None
+        bot_msg_id = None
 
         for _ in range(60):
-            async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=1):
-                if not bot_msg.from_user.is_self:
+            async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
+                # Безопасная проверка, чтобы не было краша NoneType
+                is_self = bot_msg.from_user.is_self if bot_msg.from_user else False
+                
+                # Ждем сообщение, которое новее нашего запроса
+                if bot_msg.id > sent_to_bot.id and not is_self:
                     temp_text = bot_msg.text or bot_msg.caption or ""
 
                     # Игнорируем промежуточные состояния "думаю" на китайском и английском
-                    if "思考中..." in temp_text or "Thinking..." in temp_text:        
+                    if "思考中..." in temp_text or "Thinking..." in temp_text or not temp_text:        
                         continue        
                             
-                    ai_response = temp_text        
+                    ai_response = temp_text
+                    bot_msg_id = bot_msg.id
                     break
             
             if ai_response:
@@ -163,20 +173,21 @@ async def handle_private_messages(client, message):
             # Сразу даем первый ответ
             sent_msg = await message.reply(ai_response)
             
-            # Ждем 7 секунд для обновления ответа
-            await asyncio.sleep(7)
-            
-            # Снова проверяем последнее сообщение от бота
-            async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=1):
-                if not bot_msg.from_user.is_self:
-                    final_text = bot_msg.text or bot_msg.caption or ""
-                    
-                    # Если текст поменялся и в нем нет мусора "Thinking", то обновляем
-                    if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
-                        try:
-                            await sent_msg.edit_text(final_text)
-                        except Exception as e:
-                            print(f"Не удалось обновить сообщение (скорее всего текст не изменился): {e}")
+            # Динамически ждем обновления текста (если ИИ пишет длинный ответ кусками)
+            for _ in range(12): # Проверяем в течение ~24 секунд
+                await asyncio.sleep(2)
+                async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
+                    if bot_msg.id == bot_msg_id:
+                        final_text = bot_msg.text or bot_msg.caption or ""
+                        
+                        # Если текст поменялся и в нем нет мусора, обновляем
+                        if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
+                            try:
+                                await sent_msg.edit_text(final_text)
+                                ai_response = final_text # Обновляем локально, чтобы не спамить Telegram API
+                            except Exception:
+                                pass
+                        break
         else:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка: Бот не вернул ответ вовремя.")
 
