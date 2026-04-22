@@ -7,10 +7,10 @@ from aiohttp import web
 # CONFIG
 # =========================
 
-api_id = YOUR_API_ID
-api_hash = "YOUR_API_HASH"
+api_id = 36448320
+api_hash = "6794e24f29aa879cf1a067cfc230c330"
 
-SESSION_NAME = "render_session"
+SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
 GPT_BOT_USERNAME = "chatgpt"
 
