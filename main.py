@@ -1,5 +1,5 @@
-from pyrogram import Client, filters, enums
 import asyncio
+from pyrogram import Client, filters, enums, idle
 from aiohttp import web
 
 # =========================
@@ -9,13 +9,14 @@ from aiohttp import web
 api_id = 36448320
 api_hash = "6794e24f29aa879cf1a067cfc230c330"
 
+# Твоя сессия
 SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
 GPT_BOT_USERNAME = "chatgpt"
 TARGET_GROUP_TITLE = "Molchat 🇰🇵Nihuya sibe... pass🇦🇫"
 
 # =========================
-# SYSTEM PROMPT (без изменений)
+# SYSTEM PROMPT
 # =========================
 
 SYSTEM_PROMPT = """
@@ -56,11 +57,12 @@ SYSTEM_PROMPT = """
 """
 
 # =========================
-# CLIENT
+# CLIENT INIT
 # =========================
 
 app = Client(
-    SESSION_NAME,
+    "jane_session", # Имя файла сессии локально
+    session_string=SESSION_NAME,
     api_id=api_id,
     api_hash=api_hash,
     device_model="iPhone 15 Pro",
@@ -68,24 +70,6 @@ app = Client(
     app_version="10.9",
     lang_code="ru"
 )
-
-# =========================
-# WEB SERVER
-# =========================
-
-web_app = web.Application()
-
-async def handle(request):
-    return web.Response(text="OK")
-
-web_app.add_routes([web.get("/", handle)])
-
-async def start_web():
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
-    await site.start()
-    print("🌐 Web server started on port 8080")
 
 # =========================
 # HELPERS
@@ -100,98 +84,112 @@ def clean_text(msg):
     return msg.text or msg.caption or "[MEDIA]"
 
 # =========================
-# MAIN HANDLER
+# HANDLERS
 # =========================
 
 @app.on_message(filters.all)
 async def handler(client, message):
-
+    # Игнорируем себя
     if message.from_user and message.from_user.is_self:
         return
 
+    # Проверка чата
     if not allowed_chat(message):
         return
 
+    # Отвечаем только на реплаи (как в твоем коде)
     if not message.reply_to_message:
         return
 
     user_text = clean_text(message)
-
     await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
 
-    # =========================
-    # HISTORY BUILD
-    # =========================
-
-    history = []
-
+    # Сбор истории
+    history_list = []
     async for m in client.get_chat_history(message.chat.id, limit=10):
         if m.id == message.id:
             continue
-        name = m.from_user.first_name if m.from_user else "unknown"
+        name = m.from_user.first_name if m.from_user else "Unknown"
         text = clean_text(m)
-        history.append(f"{name} - {text}")
-        if len(history) >= 8:
+        history_list.append(f"{name}: {text}")
+        if len(history_list) >= 8:
             break
 
-    history = "\n".join(reversed(history))
+    history_str = "\n".join(reversed(history_list))
+    prompt = SYSTEM_PROMPT.format(history=history_str, input=user_text)
 
-    # =========================
-    # PROMPT BUILD
-    # =========================
+    # Отправка боту GPT
+    try:
+        sent = await client.send_message(GPT_BOT_USERNAME, prompt)
+    except Exception as e:
+        print(f"❌ Ошибка отправки боту: {e}")
+        return
 
-    prompt = SYSTEM_PROMPT.format(history=history, input=user_text)
-
-    # =========================
-    # SEND TO GPT BOT
-    # =========================
-
-    sent = await client.send_message(GPT_BOT_USERNAME, prompt)
     ai_response = None
-
+    # Ожидание ответа (60 секунд)
     for _ in range(60):
-        async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):
-            if not msg.reply_to_message:
-                continue
-            if msg.reply_to_message.id != sent.id:
-                continue
-            text = msg.text or ""
-            if "Thinking" in text or "思考中" in text:
-                continue
-            ai_response = text
-            break
-
+        await asyncio.sleep(1.5)
+        async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
+            # Проверяем, что это ответ на наше сообщение
+            if msg.reply_to_message and msg.reply_to_message.id == sent.id:
+                text = msg.text or ""
+                if "Thinking" in text or "思考中" in text:
+                    continue
+                ai_response = text
+                break
         if ai_response:
             break
-
-        await asyncio.sleep(1)
 
     if not ai_response:
         return
 
-    # =========================
-    # SEND RESPONSE
-    # =========================
-
-    reply = await message.reply(ai_response)
-
-    await asyncio.sleep(10)
-
+    # Ответ в чат
     try:
+        reply = await message.reply(ai_response)
+        # Эффект обновления через 10 секунд
+        await asyncio.sleep(10)
         await reply.edit_text(ai_response + "\n\n✦ updated")
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"❌ Ошибка при ответе: {e}")
 
 # =========================
-# STARTUP — ИСПРАВЛЕНО
+# WEB SERVER
+# =========================
+
+async def handle(request):
+    return web.Response(text="Jane Doe is watching you...")
+
+async def start_web():
+    server = web.Application()
+    server.add_routes([web.get("/", handle)])
+    runner = web.AppRunner(server)
+    await runner.setup()
+    site = web.TCPSite(runner, "0.0.0.0", 8080)
+    await site.start()
+    print("🌐 Web server running on port 8080")
+
+# =========================
+# MAIN RUNNER
 # =========================
 
 async def main():
-    print("🚀 Bot starting...")
+    print("🚀 Starting services...")
+    
+    # Запускаем веб-сервер
     await start_web()
-    async with app:
-        print("✅ Bot is online")
-        await asyncio.Event().wait()
+    
+    # Запускаем клиент Telegram
+    await app.start()
+    print("✅ Bot is online!")
+    
+    # Ожидаем завершения (keep-alive)
+    await idle()
+    
+    # Корректная остановка
+    await app.stop()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        pass
