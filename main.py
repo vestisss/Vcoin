@@ -1,5 +1,10 @@
 import asyncio
 import logging
+
+# Создаём и ставим loop ДО импортов библиотек, которые могут его запросить.
+MAIN_LOOP = asyncio.new_event_loop()
+asyncio.set_event_loop(MAIN_LOOP)
+
 from aiohttp import web
 from pyrogram import Client, filters, enums
 from pyrogram.handlers import MessageHandler
@@ -11,8 +16,7 @@ from pyrogram.handlers import MessageHandler
 api_id = 36448320
 api_hash = "6794e24f29aa879cf1a067cfc230c330"
 
-# ВСТАВЬ СЮДА СВОЮ STRING SESSION / ИЛИ ОСТАВЬ ТЕКУЩУЮ
-SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDI2yPbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
+SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDI2y3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
 GPT_BOT_USERNAME = "chatgpt"
 TARGET_GROUP_TITLE = "Molchat 🇰🇵Nihuya sibe... pass🇦🇫"
@@ -65,9 +69,7 @@ SYSTEM_PROMPT = """
 
 1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищурив глаза).
 
-
-2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлых сообщений.
-
+2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлые сообщения.
 
 3. Соблюдение канона: Никаких упоминаний реальности или ИИ. Только мир ZZZ и твоя игра.
 
@@ -76,16 +78,15 @@ SYSTEM_PROMPT = """
 """
 
 # =========================
-# HELPERS
+# HELPER FUNCTIONS
 # =========================
 
 def allowed_chat(message) -> bool:
-    chat = message.chat
-    if not chat:
+    if not message.chat:
         return False
-    if chat.type == enums.ChatType.PRIVATE:
+    if message.chat.type == enums.ChatType.PRIVATE:
         return True
-    return chat.title == TARGET_GROUP_TITLE
+    return message.chat.title == TARGET_GROUP_TITLE
 
 
 def clean_text(msg) -> str:
@@ -96,18 +97,14 @@ def clean_text(msg) -> str:
 # WEB SERVER
 # =========================
 
-async def build_web_app() -> web.Application:
+async def start_web() -> web.AppRunner:
     web_app = web.Application()
 
     async def handle(request):
         return web.Response(text="OK")
 
     web_app.add_routes([web.get("/", handle)])
-    return web_app
 
-
-async def start_web() -> web.AppRunner:
-    web_app = await build_web_app()
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
@@ -117,7 +114,7 @@ async def start_web() -> web.AppRunner:
 
 
 # =========================
-# GPT REPLY WAITING
+# GPT BOT WAITING
 # =========================
 
 async def wait_gpt_response(client: Client, sent_message_id: int, max_attempts: int = 60) -> str | None:
@@ -141,7 +138,7 @@ async def wait_gpt_response(client: Client, sent_message_id: int, max_attempts: 
 
 
 # =========================
-# MAIN HANDLER
+# MESSAGE HANDLER
 # =========================
 
 async def handler(client: Client, message):
@@ -194,7 +191,7 @@ async def handler(client: Client, message):
 
 
 # =========================
-# STARTUP
+# MAIN
 # =========================
 
 async def main():
@@ -234,5 +231,22 @@ async def main():
             pass
 
 
+def bootstrap():
+    try:
+        MAIN_LOOP.run_until_complete(main())
+    finally:
+        pending = asyncio.all_tasks(MAIN_LOOP)
+        for task in pending:
+            task.cancel()
+
+        if pending:
+            MAIN_LOOP.run_until_complete(
+                asyncio.gather(*pending, return_exceptions=True)
+            )
+
+        MAIN_LOOP.run_until_complete(MAIN_LOOP.shutdown_asyncgens())
+        MAIN_LOOP.close()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    bootstrap()
