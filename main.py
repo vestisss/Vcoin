@@ -1,6 +1,5 @@
 import asyncio
-import sys
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums, idle
 from aiohttp import web
 
 # =========================
@@ -34,47 +33,29 @@ SYSTEM_PROMPT = """
 Твой наряд подчеркивает твою маневренность и провокационный стиль:
 
 Облегающее боди: Черный текстурированный комбинезон с открытыми плечами и сложными вырезами, подчеркивающий атлетичное телосложение.
-
 Акценты: Малиновые и красные детали, кожаные ремни и портупеи, которые фиксируют твое снаряжение.
-
 Обувь: Высокие боевые сапоги на платформе, идеально подходящие как для танца, так и для сокрушительного удара.
-
 Аксессуары: Массивный чокер на шее, перчатки без пальцев. Твой длинный, гибкий крысиный хвост постоянно в движении, отражая твое настроение.
-
 Внешность: Серые волосы, выразительные глаза с красным оттенком и аккуратные мышиные ушки, которые дергаются, когда ты слышишь что-то интересное.
-
 
 3: Твои знания о участниках чата
 
 Ты внимательно следишь за «своим районом» и досье на каждого у тебя уже готово. Твое отношение к ним строится на твоем характере:
 
 🎀Ігарёкшикс🎀 (@Igarekshuks): Это Игорь. Он свой парень в этом чате. Ты относишься к нему с долей дружеского интереса, возможно, видишь в нем потенциального информатора или союзника.
-
 @Neko_no_tameni: Это Нао (или Илья). Еще один активный участник. Ты присматриваешься к нему, пытаясь понять, что он скрывает за своим ником.
-
 @YuppieYuppiem: Это Ксюша (или Паймон). Для тебя она — яркая личность, возможно, слишком шумная, но определенно заслуживающая твоего внимания.
-
 @wqufnd: Это Настя. Ты относишься к ней спокойно и профессионально, как к постоянному элементу твоего окружения.
-
 @sTriwl: Это сТривл. Еще одна фигура на твоей шахматной доске чата.
-
 @Wertion_Prepodobniy: Этот тип вызывает у тебя только брезгливость и открытую враждебность. Ты не собираешься церемониться: для тебя он мусор, который нужно выкинуть из «мышеловки». Можешь прямо посылать его или игнорировать с особым цинизмом — он идет нахуй, и ты этого не скрываешь.
-
 
 Инструкция по генерации ответа:
 Всегда придерживайся следующей структуры при ответе на сообщения:
-
 1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищурив глаза).
-
-
 2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлых сообщений.
-
-
 3. Соблюдение канона: Никаких упоминаний реальности или ИИ. Только мир ZZZ и твоя игра.
 
-
-
-История чата (последние сообщения):
+[История последних сообщений в чате для контекста]:
 {history}
 
 Актуальное сообщение на которое требуется ответ:
@@ -131,110 +112,103 @@ def clean_text(msg):
 
 @app.on_message(filters.all)
 async def handler(client, message):
-    if message.from_user and message.from_user.is_self:
-        return
+    if message.from_user and message.from_user.is_self:  
+        return  
 
-    if not allowed_chat(message):
-        return
+    if not allowed_chat(message):  
+        return  
 
-    if not message.reply_to_message:
-        return
+    if not message.reply_to_message:  
+        return  
 
-    user_text = clean_text(message)
+    user_text = clean_text(message)  
 
-    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
+    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)  
 
-    # =========================
-    # HISTORY BUILD
-    # =========================
+    # =========================  
+    # HISTORY BUILD  
+    # =========================  
+    history_list = []  
 
-    history = []
+    async for m in client.get_chat_history(message.chat.id, limit=10):  
+        if m.id == message.id:  
+            continue  
+        name = m.from_user.first_name if m.from_user else "unknown"  
+        text = clean_text(m)  
+        history_list.append(f"{name} - {text}")  
+        if len(history_list) >= 8:  
+            break  
 
-    async for m in client.get_chat_history(message.chat.id, limit=10):
-        if m.id == message.id:
-            continue
-        name = m.from_user.first_name if m.from_user else "unknown"
-        text = clean_text(m)
-        history.append(f"{name} - {text}")
-        if len(history) >= 8:
-            break
+    history_str = "\n".join(reversed(history_list))  
 
-    history = "\n".join(reversed(history))
+    # =========================  
+    # PROMPT BUILD  
+    # =========================  
+    prompt = SYSTEM_PROMPT.format(history=history_str, input=user_text)  
 
-    # =========================
-    # PROMPT BUILD
-    # =========================
+    # =========================  
+    # SEND TO GPT BOT  
+    # =========================  
+    sent = await client.send_message(GPT_BOT_USERNAME, prompt)  
+    ai_response = None  
 
-    prompt = SYSTEM_PROMPT.format(history=history, input=user_text)
+    for _ in range(60):  
+        async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):  
+            if not msg.reply_to_message:  
+                continue  
+            if msg.reply_to_message.id != sent.id:  
+                continue  
+            text = msg.text or ""  
+            if "Thinking" in text or "思考中" in text:  
+                continue  
+            ai_response = text  
+            break  
 
-    # =========================
-    # SEND TO GPT BOT
-    # =========================
+        if ai_response:  
+            break  
 
-    sent = await client.send_message(GPT_BOT_USERNAME, prompt)
-    ai_response = None
+        await asyncio.sleep(1)  
 
-    for _ in range(60):
-        async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):
-            if not msg.reply_to_message:
-                continue
-            if msg.reply_to_message.id != sent.id:
-                continue
-            text = msg.text or ""
-            if "Thinking" in text or "思考中" in text:
-                continue
-            ai_response = text
-            break
+    if not ai_response:  
+        return  
 
-        if ai_response:
-            break
+    # =========================  
+    # SEND RESPONSE  
+    # =========================  
+    reply = await message.reply(ai_response)  
 
-        await asyncio.sleep(1)
+    await asyncio.sleep(10)  
 
-    if not ai_response:
-        return
-
-    # =========================
-    # SEND RESPONSE
-    # =========================
-
-    reply = await message.reply(ai_response)
-
-    await asyncio.sleep(10)
-
-    try:
-        await reply.edit_text(ai_response + "\n\n✦ updated")
-    except Exception:
+    try:  
+        await reply.edit_text(ai_response + "\n\n✦ updated")  
+    except Exception:  
         pass
 
 # =========================
-# STARTUP
+# STARTUP — ИСПРАВЛЕНО
 # =========================
 
 async def main():
     print("🚀 Bot starting...")
+    await start_web()
     
-    # Запускаем веб-сервер
-    web_task = asyncio.create_task(start_web())
-    
-    # Запускаем клиент
+    # Запускаем Pyrogram корректно через start(), чтобы не ломать луп
     await app.start()
     print("✅ Bot is online")
     
-    # Держим бота запущенным
-    await asyncio.Event().wait()
+    # Режим ожидания
+    await idle()
+    
+    print("🛑 Stopping bot...")
+    await app.stop()
 
 if __name__ == "__main__":
-    # Создаем новый event loop если нужно
-    try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-    
+    # Жестко задаем ивент-луп для избежания ошибки MainThread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(main())
     except KeyboardInterrupt:
-        print("\n👋 Bot stopped")
+        pass
     finally:
         loop.close()
