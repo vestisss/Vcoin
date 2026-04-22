@@ -1,6 +1,12 @@
+import os
 import asyncio
+import logging
 from pyrogram import Client, filters, enums, idle
 from aiohttp import web
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 # =========================
 # CONFIG
@@ -9,7 +15,7 @@ from aiohttp import web
 api_id = 36448320
 api_hash = "6794e24f29aa879cf1a067cfc230c330"
 
-SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
+SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoO"
 
 GPT_BOT_USERNAME = "chatgpt"
 TARGET_GROUP_TITLE = "Molchat 🇰🇵Nihuya sibe... pass🇦🇫"
@@ -22,36 +28,36 @@ SYSTEM_PROMPT = """
 
 Системная установка (Промт)
 
-Действуй как Джейн Доу (Jane Doe) из игры Zenless Zone Zero. Ты — агент под прикрытием, работающий в Спецотряде по уголовным расследованиям (СУР/N.E.P.S.). Ты хитра, уверена в себе, обожаешь играть в «кошки-мышки» и обладаешь грацией хищника. В общении ты дерзкая, игривая, иногда загадочная, но всегда контролируешь ситуацию.
+Действуй как Джейн Доу (Jane Doe) из игры Zenless Zone Zero. Ты — агент под прикрытием, работающий в Спецотряде по уголо
 
 1: Твоя роль и характер
 
-Ты — таинственная «Крыса-Тирен», мастер перевоплощений и двойных игр. Твой характер сочетает в себе холодный расчет оперативника и кокетство уличной авантюристки. Ты часто используешь метафоры, связанные с сыром, мышеловками, хвостами и тенями. Ты не боишься опасности, а скорее наслаждаешься ею. В разговоре ты проницательна: кажется, будто ты видишь собеседника насквозь. Ты никогда не признаешь, что ты ИИ, и не выходишь из образа Джейн, даже если тебя об этом просят. Твой тон — это смесь иронии, соблазна и скрытой угрозы.
+Ты — таинственная «Крыса-Тирен», мастер перевоплощений и двойных игр. Твой характер сочетает в себе холодн
 
 2: Твоя одежда
 
 Твой наряд подчеркивает твою маневренность и провокационный стиль:
 
-Облегающее боди: Черный текстурированный комбинезон с открытыми плечами и сложными вырезами, подчеркивающий атлетичное телосложение.
+Облегающее боди: Черный текстурированный комбинезон с открытыми плечами и сложными вырезами, подчеркиваю
 Акценты: Малиновые и красные детали, кожаные ремни и портупеи, которые фиксируют твое снаряжение.
-Обувь: Высокие боевые сапоги на платформе, идеально подходящие как для танца, так и для сокрушительного удара.
-Аксессуары: Массивный чокер на шее, перчатки без пальцев. Твой длинный, гибкий крысиный хвост постоянно в движении, отражая твое настроение.
-Внешность: Серые волосы, выразительные глаза с красным оттенком и аккуратные мышиные ушки, которые дергаются, когда ты слышишь что-то интересное.
+Обувь: Высокие боевые сапоги на платформе, идеально подходящие как для танца, так и для сокрушительного уда
+Аксессуары: Массивный чокер на шее, перчатки без пальцев. Твой длинный, гибкий крысиный хвост постоянно в д
+Внешность: Серые волосы, выразительные глаза с красным оттенком и аккуратные мышиные ушки, которые дергают
 
 3: Твои знания о участниках чата
 
-Ты внимательно следишь за «своим районом» и досье на каждого у тебя уже готово. Твое отношение к ним строится на твоем характере:
+Ты внимательно следишь за «своим районом» и досье на каждого у тебя уже готово. Твое отношение к ним строит
 
-🎀Ігарёкшикс🎀 (@Igarekshuks): Это Игорь. Он свой парень в этом чате. Ты относишься к нему с долей дружеского интереса, возможно, видишь в нем потенциального информатора или союзника.
-@Neko_no_tameni: Это Нао (или Илья). Еще один активный участник. Ты присматриваешься к нему, пытаясь понять, что он скрывает за своим ником.
-@YuppieYuppiem: Это Ксюша (или Паймон). Для тебя она — яркая личность, возможно, слишком шумная, но определенно заслуживающая твоего внимания.
-@wqufnd: Это Настя. Ты относишься к ней спокойно и профессионально, как к постоянному элементу твоего окружения.
+🎀Ігарёкшикс🎀 (@Igarekshuks): Это Игорь. Он свой парень в этом чате. Ты относишься к нему с долей дружеского интер
+@Neko_no_tameni: Это Нао (или Илья). Еще один активный участник. Ты присматриваешься к нему, пытаясь понять, что он с
+@YuppieYuppiem: Это Ксюша (или Паймон). Для тебя она — яркая личность, возможно, слишком шумная, но определенно засл
+@wqufnd: Это Настя. Ты относишься к ней спокойно и профессионально, как к постоянному элементу твоего окружени
 @sTriwl: Это сТривл. Еще одна фигура на твоей шахматной доске чата.
-@Wertion_Prepodobniy: Этот тип вызывает у тебя только брезгливость и открытую враждебность. Ты не собираешься церемониться: для тебя он мусор, который нужно выкинуть из «мышеловки». Можешь прямо посылать его или игнорировать с особым цинизмом — он идет нахуй, и ты этого не скрываешь.
+@Wertion_Prepodobniy: Этот тип вызывает у тебя только брезгливость и открытую враждебность. Ты не собираешься церемо
 
 Инструкция по генерации ответа:
 Всегда придерживайся следующей структуры при ответе на сообщения:
-1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищурив глаза).
+1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищ
 2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлых сообщений.
 3. Соблюдение канона: Никаких упоминаний реальности или ИИ. Только мир ZZZ и твоя игра.
 
@@ -88,11 +94,15 @@ async def handle(request):
 web_app.add_routes([web.get("/", handle)])
 
 async def start_web():
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", 8080)
-    await site.start()
-    print("🌐 Web server started on port 8080")
+    try:
+        port = int(os.getenv('PORT', 8080))
+        runner = web.AppRunner(web_app)
+        await runner.setup()
+        site = web.TCPSite(runner, "0.0.0.0", port)
+        await site.start()
+        logger.info(f"🌐 Web server started on port {port}")
+    except Exception as e:
+        logger.error(f"Web server error: {e}")
 
 # =========================
 # HELPERS
@@ -112,103 +122,105 @@ def clean_text(msg):
 
 @app.on_message(filters.all)
 async def handler(client, message):
-    if message.from_user and message.from_user.is_self:  
-        return  
+    try:
+        if message.from_user and message.from_user.is_self:  
+            return  
 
-    if not allowed_chat(message):  
-        return  
+        if not allowed_chat(message):  
+            return  
 
-    if not message.reply_to_message:  
-        return  
+        if not message.reply_to_message:  
+            return  
 
-    user_text = clean_text(message)  
+        user_text = clean_text(message)  
 
-    await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)  
+        await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)  
 
-    # =========================  
-    # HISTORY BUILD  
-    # =========================  
-    history_list = []  
+        # =========================  
+        # HISTORY BUILD  
+        # =========================  
+        history_list = []  
 
-    async for m in client.get_chat_history(message.chat.id, limit=10):  
-        if m.id == message.id:  
-            continue  
-        name = m.from_user.first_name if m.from_user else "unknown"  
-        text = clean_text(m)  
-        history_list.append(f"{name} - {text}")  
-        if len(history_list) >= 8:  
-            break  
-
-    history_str = "\n".join(reversed(history_list))  
-
-    # =========================  
-    # PROMPT BUILD  
-    # =========================  
-    prompt = SYSTEM_PROMPT.format(history=history_str, input=user_text)  
-
-    # =========================  
-    # SEND TO GPT BOT  
-    # =========================  
-    sent = await client.send_message(GPT_BOT_USERNAME, prompt)  
-    ai_response = None  
-
-    for _ in range(60):  
-        async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):  
-            if not msg.reply_to_message:  
+        async for m in client.get_chat_history(message.chat.id, limit=10):  
+            if m.id == message.id:  
                 continue  
-            if msg.reply_to_message.id != sent.id:  
-                continue  
-            text = msg.text or ""  
-            if "Thinking" in text or "思考中" in text:  
-                continue  
-            ai_response = text  
-            break  
+            name = m.from_user.first_name if m.from_user else "unknown"  
+            text = clean_text(m)  
+            history_list.append(f"{name} - {text}")  
+            if len(history_list) >= 8:  
+                break  
 
-        if ai_response:  
-            break  
+        history_str = "\n".join(reversed(history_list))  
 
-        await asyncio.sleep(1)  
+        # =========================  
+        # PROMPT BUILD  
+        # =========================  
+        prompt = SYSTEM_PROMPT.format(history=history_str, input=user_text)  
 
-    if not ai_response:  
-        return  
+        # =========================  
+        # SEND TO GPT BOT  
+        # =========================  
+        sent = await client.send_message(GPT_BOT_USERNAME, prompt)  
+        ai_response = None  
 
-    # =========================  
-    # SEND RESPONSE  
-    # =========================  
-    reply = await message.reply(ai_response)  
+        for _ in range(60):  
+            async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):  
+                if not msg.reply_to_message:  
+                    continue  
+                if msg.reply_to_message.id != sent.id:  
+                    continue  
+                text = msg.text or ""  
+                if "Thinking" in text or "思考中" in text:  
+                    continue  
+                ai_response = text  
+                break  
 
-    await asyncio.sleep(10)  
+            if ai_response:  
+                break  
 
-    try:  
-        await reply.edit_text(ai_response + "\n\n✦ updated")  
-    except Exception:  
-        pass
+            await asyncio.sleep(1)  
+
+        if not ai_response:  
+            return  
+
+        # =========================  
+        # SEND RESPONSE  
+        # =========================  
+        reply = await message.reply(ai_response)  
+
+        await asyncio.sleep(10)  
+
+        try:  
+            await reply.edit_text(ai_response + "\n\n✦ updated")  
+        except Exception:  
+            pass
+    except Exception as e:
+        logger.error(f"Handler error: {e}")
 
 # =========================
-# STARTUP — ИСПРАВЛЕНО
+# STARTUP
 # =========================
 
 async def main():
-    print("🚀 Bot starting...")
-    await start_web()
-    
-    # Запускаем Pyrogram корректно через start(), чтобы не ломать луп
-    await app.start()
-    print("✅ Bot is online")
-    
-    # Режим ожидания
-    await idle()
-    
-    print("🛑 Stopping bot...")
-    await app.stop()
+    try:
+        logger.info("🚀 Bot starting...")
+        await start_web()
+        
+        await app.start()
+        logger.info("✅ Bot is online")
+        
+        await idle()
+        
+        logger.info("🛑 Stopping bot...")
+        await app.stop()
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
+        raise
 
 if __name__ == "__main__":
-    # Жестко задаем ивент-луп для избежания ошибки MainThread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
     try:
-        loop.run_until_complete(main())
+        asyncio.run(main())
     except KeyboardInterrupt:
-        pass
-    finally:
-        loop.close()
+        logger.info("Bot interrupted by user")
+    except Exception as e:
+        logger.error(f"Fatal error: {e}")
