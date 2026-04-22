@@ -73,16 +73,21 @@ async def toggle_gpt_handler(client, message):
     global gpt_all_enabled
     gpt_all_enabled = not gpt_all_enabled
     status = "ВКЛЮЧЕН ✅" if gpt_all_enabled else "ВЫКЛЮЧЕН ❌"
-    await message.edit_text(f"🐀 Режим Jane Doe для всех ЛС: {status}")
+    await message.edit_text(f"🐀 Режим Jane Doe: {status}")
     print(f"Режим GptAll: {status}")
 
-# === Основной обработчик ЛС ===
-@app.on_message(filters.private & ~filters.me & ~filters.bot)
+# === Основной обработчик ЛС и ответов в группах ===
+@app.on_message((filters.private | filters.group) & ~filters.me & ~filters.bot)
 async def handle_private_messages(client, message):
     global gpt_all_enabled
 
     if not gpt_all_enabled:
         return
+        
+    # Если это группа, реагируем ТОЛЬКО если это реплай на сообщение нашего юзербота
+    if message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP):
+        if not message.reply_to_message or not message.reply_to_message.from_user or not message.reply_to_message.from_user.is_self:
+            return
 
     chat_id = message.chat.id
     sender_name = message.from_user.first_name if message.from_user else "Неизвестный"
@@ -142,11 +147,11 @@ async def handle_private_messages(client, message):
                 if not bot_msg.from_user.is_self:
                     temp_text = bot_msg.text or bot_msg.caption or ""
 
-                    if "思考中..." in temp_text:        
+                    # Игнорируем промежуточные состояния "думаю" на китайском и английском
+                    if "思考中..." in temp_text or "Thinking..." in temp_text:        
                         continue        
                             
                     ai_response = temp_text        
-                    await asyncio.sleep(2)        
                     break
             
             if ai_response:
@@ -155,7 +160,23 @@ async def handle_private_messages(client, message):
             await asyncio.sleep(1)
 
         if ai_response:
-            await message.reply(ai_response)
+            # Сразу даем первый ответ
+            sent_msg = await message.reply(ai_response)
+            
+            # Ждем 7 секунд для обновления ответа
+            await asyncio.sleep(7)
+            
+            # Снова проверяем последнее сообщение от бота
+            async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=1):
+                if not bot_msg.from_user.is_self:
+                    final_text = bot_msg.text or bot_msg.caption or ""
+                    
+                    # Если текст поменялся и в нем нет мусора "Thinking", то обновляем
+                    if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
+                        try:
+                            await sent_msg.edit_text(final_text)
+                        except Exception as e:
+                            print(f"Не удалось обновить сообщение (скорее всего текст не изменился): {e}")
         else:
             print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка: Бот не вернул ответ вовремя.")
 
