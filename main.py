@@ -2,16 +2,7 @@ import asyncio
 import os
 from datetime import datetime
 from aiohttp import web
-
-# === ПАТЧ ДЛЯ RENDER И НОВЫХ ВЕРСИЙ PYTHON ===
-# Создаем event loop ДО импорта pyrogram, чтобы он не крашился при инициализации
-try:
-    asyncio.get_event_loop()
-except RuntimeError:
-    asyncio.set_event_loop(asyncio.new_event_loop())
-# ==============================================
-
-from pyrogram import Client, filters, enums
+from pyrogram import Client, filters, enums, idle
 
 # === Твои данные (вшиты намертво) ===
 API_ID = 36448320
@@ -84,9 +75,17 @@ async def handle_private_messages(client, message):
     if not gpt_all_enabled:
         return
         
-    # Если это группа, реагируем ТОЛЬКО если это реплай на сообщение нашего юзербота
+    # === ЛОГИКА ГРУППОВЫХ ЧАТОВ ===
+    # Если пишут в группу, реагируем ТОЛЬКО если это реплай на наше сообщение (сообщение юзербота)
     if message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP):
-        if not message.reply_to_message or not message.reply_to_message.from_user or not message.reply_to_message.from_user.is_self:
+        # Проверяем, есть ли реплай вообще
+        if not message.reply_to_message:
+            return
+        # Проверяем, есть ли автор у сообщения, на которое ответили (защита от анонимных админов/каналов)
+        if not message.reply_to_message.from_user:
+            return
+        # Проверяем, является ли автором сообщения сам юзербот
+        if not message.reply_to_message.from_user.is_self:
             return
 
     chat_id = message.chat.id
@@ -95,7 +94,6 @@ async def handle_private_messages(client, message):
 
     # Идентификатор для промпта
     user_id_str = f"{sender_name} ({sender_username})" if sender_username else sender_name
-
     user_text = message.text or message.caption
 
     if not user_text:
@@ -108,6 +106,7 @@ async def handle_private_messages(client, message):
 
     history_messages = []
 
+    # Собираем контекст из чата
     async for hist_msg in client.get_chat_history(chat_id, limit=7):
         if hist_msg.id == message.id:
             continue
@@ -138,7 +137,7 @@ async def handle_private_messages(client, message):
         # Обрезаем запрос, чтобы избежать ошибки лимита символов Telegram
         safe_query = full_query[:4000]
         
-        # Сохраняем отправленное сообщение, чтобы искать ответ строго после него
+        # Отправляем запрос боту ChatGPT
         sent_to_bot = await client.send_message(GPT_BOT_USERNAME, safe_query)
         
         await asyncio.sleep(2)
@@ -147,16 +146,17 @@ async def handle_private_messages(client, message):
         ai_response = None
         bot_msg_id = None
 
+        # Ожидание ответа от бота
         for _ in range(60):
             async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
-                # Безопасная проверка, чтобы не было краша NoneType
+                # Защита от NoneType
                 is_self = bot_msg.from_user.is_self if bot_msg.from_user else False
                 
-                # Ждем сообщение, которое новее нашего запроса
+                # Ждем сообщение, которое новее нашего запроса и не от нас
                 if bot_msg.id > sent_to_bot.id and not is_self:
                     temp_text = bot_msg.text or bot_msg.caption or ""
 
-                    # Игнорируем промежуточные состояния "думаю" на китайском и английском
+                    # Игнорируем промежуточные состояния "думаю"
                     if "思考中..." in temp_text or "Thinking..." in temp_text or not temp_text:        
                         continue        
                             
@@ -170,10 +170,10 @@ async def handle_private_messages(client, message):
             await asyncio.sleep(1)
 
         if ai_response:
-            # Сразу даем первый ответ
+            # Отправляем первичный ответ (реплаем на сообщение пользователя)
             sent_msg = await message.reply(ai_response)
             
-            # Динамически ждем обновления текста (если ИИ пишет длинный ответ кусками)
+            # Динамически ждем обновления текста (если бот пишет кусками)
             for _ in range(12): # Проверяем в течение ~24 секунд
                 await asyncio.sleep(2)
                 async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
@@ -184,7 +184,7 @@ async def handle_private_messages(client, message):
                         if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
                             try:
                                 await sent_msg.edit_text(final_text)
-                                ai_response = final_text # Обновляем локально, чтобы не спамить Telegram API
+                                ai_response = final_text 
                             except Exception:
                                 pass
                         break
@@ -194,10 +194,11 @@ async def handle_private_messages(client, message):
     except Exception as e:
         print(f"Ошибка при обработке AI: {e}")
 
+
 # === Фейковый веб-сервер для Render / UptimeRobot ===
 async def keep_alive_server():
     async def handle_request(request):
-        return web.Response(text="Jane Doe is watching...")
+        return web.Response(text="Jane Doe is watching... Systems online.")
 
     web_app = web.Application()
     web_app.router.add_get('/', handle_request)
@@ -210,15 +211,24 @@ async def keep_alive_server():
     await site.start()
     print(f"🌐 Веб-сервер запущен на порту {port}. Порты открыты для Render/UptimeRobot.")
 
-# === Запуск ===
+
+# === Основной запуск ===
 async def main():
     print("🚀 Запуск Jane Doe Userbot (Render Mode)...")
-    await keep_alive_server() # Поднимаем порты
     
-    async with app:
-        print("✅ Бот в сети. Команда активации: /GptAll")
-        await asyncio.Event().wait()
+    # Запускаем веб-сервер асинхронно
+    await keep_alive_server() 
+    
+    # Запускаем Pyrogram клиент
+    await app.start()
+    print("✅ Бот в сети. Команда активации: /GptAll")
+    
+    # Нативный Idle от Pyrogram. Держит скрипт запущенным, не крашится от UptimeRobot.
+    await idle()
+    
+    # Корректное завершение при остановке
+    await app.stop()
 
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
+    # Чистый старт asyncio, поддерживаемый в новых версиях Python
+    asyncio.run(main())
