@@ -1,5 +1,6 @@
 import asyncio
 import random
+import os
 from datetime import datetime
 
 from aiohttp import web
@@ -11,8 +12,7 @@ from pyrogram import Client, filters, enums
 
 SESSION_STRING = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDI2y3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
-GPT_BOT_USERNAME = "chatgpt"  # без @
-
+GPT_BOT_USERNAME = "chatgpt"
 gpt_all_enabled = False
 
 # =========================
@@ -51,7 +51,7 @@ GREETINGS = [
     "Dobro jutro svijete", "Bonum mane mundi", "Goeie more wêreld", "Goedemoarn wrâld",
     "Miremengjes bote", "Ụtụtụ ọma ụwa", "God morgon världen", "Ola bom dia mundo",
     "Magandang umaga mundo", "Maidin mhaith domhan", "Egun on mundua", "Dobrý deň svet",
-    "Bonan matenon mondo", "Καλημέра κόσμε", "Morning sTriwl", "おはよう", "Morning Shizue",
+    "Bonan matenon mondo", "Καλημέρα κόσμε", "Morning sTriwl", "おはよう", "Morning Shizue",
     "Günaydın dünya", "Доброго ранку, світе", "בוקר טוב עולם", "Habari za asubuhi dunia",
     "Chào buổi sáng thế giới", "صبح بخیر دنیا", "Godmorgen verden", "Labas rytas pasauli",
     "Tere hommikust maailm", "শুভ সকাল দুনিয়া", "Subha bakhair duniya", "காலை வணக்கம் உலகம்",
@@ -81,19 +81,16 @@ app = Client(
 # RENDER HEALTH SERVER
 # =========================
 
-web_app = web.Application()
-
-
-async def health(request):
-    return web.Response(text="ok")
-
-
-web_app.router.add_get("/", health)
-web_app.router.add_get("/health", health)
-
-
 async def start_web_server():
-    port = int(__import__("os").environ.get("PORT", 10000))
+    web_app = web.Application()
+
+    async def health(request):
+        return web.Response(text="ok")
+
+    web_app.router.add_get("/", health)
+    web_app.router.add_get("/health", health)
+
+    port = int(os.environ.get("PORT", 10000))
     runner = web.AppRunner(web_app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", port)
@@ -140,7 +137,6 @@ async def handle_private_messages(client, message):
 
     chat_id = message.chat.id
     sender_name = message.from_user.first_name if message.from_user else "Неизвестный"
-
     user_text = message.text or message.caption
 
     if not user_text:
