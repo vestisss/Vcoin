@@ -1,6 +1,5 @@
 from pyrogram import Client, filters, enums
 import asyncio
-from datetime import datetime
 from aiohttp import web
 
 # =========================
@@ -13,11 +12,10 @@ api_hash = "6794e24f29aa879cf1a067cfc230c330"
 SESSION_NAME = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
 
 GPT_BOT_USERNAME = "chatgpt"
-
 TARGET_GROUP_TITLE = "Molchat 🇰🇵Nihuya sibe... pass🇦🇫"
 
 # =========================
-# SYSTEM PROMPT (JANE DOE ZZZ) - ОБНОВЛЕННЫЙ
+# SYSTEM PROMPT (без изменений)
 # =========================
 
 SYSTEM_PROMPT = """
@@ -72,7 +70,7 @@ app = Client(
 )
 
 # =========================
-# WEB SERVER (Render keep alive)
+# WEB SERVER
 # =========================
 
 web_app = web.Application()
@@ -87,7 +85,7 @@ async def start_web():
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", 8080)
     await site.start()
-    print("🌐 Web server started")
+    print("🌐 Web server started on port 8080")
 
 # =========================
 # HELPERS
@@ -108,21 +106,17 @@ def clean_text(msg):
 @app.on_message(filters.all)
 async def handler(client, message):
 
-    # игнор себя
     if message.from_user and message.from_user.is_self:
         return
 
-    # только ЛС или нужная группа
     if not allowed_chat(message):
         return
 
-    # только ответы на сообщения
     if not message.reply_to_message:
         return
 
     user_text = clean_text(message)
 
-    # typing
     await client.send_chat_action(message.chat.id, enums.ChatAction.TYPING)
 
     # =========================
@@ -132,15 +126,11 @@ async def handler(client, message):
     history = []
 
     async for m in client.get_chat_history(message.chat.id, limit=10):
-
         if m.id == message.id:
             continue
-
         name = m.from_user.first_name if m.from_user else "unknown"
         text = clean_text(m)
-
         history.append(f"{name} - {text}")
-
         if len(history) >= 8:
             break
 
@@ -150,38 +140,24 @@ async def handler(client, message):
     # PROMPT BUILD
     # =========================
 
-    prompt = SYSTEM_PROMPT.format(
-        history=history,
-        input=user_text
-    )
+    prompt = SYSTEM_PROMPT.format(history=history, input=user_text)
 
     # =========================
     # SEND TO GPT BOT
     # =========================
 
     sent = await client.send_message(GPT_BOT_USERNAME, prompt)
-
     ai_response = None
 
-    # =========================
-    # WAIT LOOP (filters Thinking)
-    # =========================
-
     for _ in range(60):
-
         async for msg in client.get_chat_history(GPT_BOT_USERNAME, limit=5):
-
             if not msg.reply_to_message:
                 continue
-
             if msg.reply_to_message.id != sent.id:
                 continue
-
             text = msg.text or ""
-
             if "Thinking" in text or "思考中" in text:
                 continue
-
             ai_response = text
             break
 
@@ -199,28 +175,23 @@ async def handler(client, message):
 
     reply = await message.reply(ai_response)
 
-    # =========================
-    # AUTO UPDATE AFTER 10 SEC
-    # =========================
-
     await asyncio.sleep(10)
 
     try:
         await reply.edit_text(ai_response + "\n\n✦ updated")
-    except:
+    except Exception:
         pass
 
 # =========================
-# STARTUP
+# STARTUP — ИСПРАВЛЕНО
 # =========================
 
 async def main():
     print("🚀 Bot starting...")
-
+    await start_web()
     async with app:
-        asyncio.create_task(start_web())
         print("✅ Bot is online")
         await asyncio.Event().wait()
 
 if __name__ == "__main__":
-    app.run(main())
+    asyncio.run(main())
