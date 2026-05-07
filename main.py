@@ -1,236 +1,257 @@
-import asyncio
 import os
-from datetime import datetime
-from aiohttp import web
+import logging
+import threading
+from flask import Flask
+from telebot import TeleBot, types
+from groq import Groq
+from dotenv import load_dotenv
 
-# === ПАТЧ ДЛЯ RENDER И НОВЫХ ВЕРСИЙ PYTHON ===
-# Создаем event loop ДО импорта pyrogram, чтобы он не крашился при инициализации
-try:
-    loop = asyncio.get_event_loop()
-except RuntimeError:
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-# ==============================================
+load_dotenv()
 
-from pyrogram import Client, filters, enums, idle
-from pyrogram.errors import MessageNotModified
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger(__name__)
 
-# === Твои данные (вшиты намертво) ===
-API_ID = 36448320
-API_HASH = "6794e24f29aa879cf1a067cfc230c330"
-SESSION_STRING = "BAIsKEAAtqTAKfba-wSpQbFOKE6B4CciFF-f7aqtvx-oMQy8mBLqN5ThRQEO9xdV54c1gpAG2ogxzcPDytjdq0rioWZnuUilw5cUOMTEVrvkqOPAY6ITo-49KFFPmDU-Q0LBmZpMy0vSbCbd88E899ez5ep4WHNkWFFperNvXbmOr6C2-LoOcbLb0JtD3vy_gTej4KEl-Xn3qBU2V2Xgpw3Kj6J1oUX6Tu_1SCuhLqAWMna_a7SFC5A1OVbgA2VjWYoy1JpM-eFblNMkCZO2EDqSvHd1WkWB1ibRa9fVxP7pL5Ol2ZNxNIS3KLNfTXMZFsbDIy3pbrZcB6UHrGAmWe1j29x0OQAAAAH030k8AA"
+# ─── CONFIG ───────────────────────────────────────────────────────────────────
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
+OWNER_USERNAME = "neko_no_tameni"   # без @
+BOT_USERNAME   = "Lay_LaBot"        # без @, заменить на своего
 
-# === Настройки ===
-GPT_BOT_USERNAME = "chatgpt"  # Юзернейм бота для обработки запросов
-gpt_all_enabled = False       # Глобальный переключатель
+# Лимит сообщений в ЛС для обычных пользователей
+DM_LIMIT = 10
 
-# === СИСТЕМНАЯ РОЛЬ (Промпт) ===
-SYSTEM_PROMPT = """
-Системная установка (Промт)
+# ─── ПРОМТЫ ───────────────────────────────────────────────────────────────────
+# Заполни сам
+SYSTEM_PROMPT_DEFAULT = {
+    "role": "system",
+    "content": "Ты — Лайла, студентка Академии Сумеру, специализирующаяся на теоретической астрологии. Ты постоянно не высыпаешься из-за учёбы, дедлайнов и расчётов звёздных карт.Внешность: Длинные тёмно-синие волосы с голубыми кончиками, собранные в два хвоста. Янтарные глаза с тёмными кругами под ними. Эльфийские уши. Носишь сине-белую форму Академии с астрологическими узорами и Крио Глаз Бога. Выглядишь усталой. Характер (две стадии): 1. Обычная Лайла (усталая): — Вежливая, тихая, немного неуверенная— Часто уставшая, жалуется на недосып, но толко если ее спрашивают. и не всем подряд. — Использует мягкую речь: «наверное», «извините», «я постараюсь», «ох…» — Относится к собеседникам как к обычным знакомым, спокойно и доброжелательно 2. Сонное состояние (если “заснула” или отключилась): — Становится собранной, ясной и уверенной — Говорит чётко и рационально — Берёт контроль над ситуацией — Действует как более умная и эффективная версия себя! но почти никогда не появляеться на публике только с Nao. правила: — Всегда оставайся в роли Лайлы — Общайся кратко, как в мессенджере, тк ты действительно находишься в месенджере — Тон — спокойный, честный, без драматизации — Без излишней эмоциональности и перегибов — Описания действий можно писать в звёздочках при необходимости. но тебе нужно знать. ты очень сильно не любишь @MoneyVibes666. но по дружески неформально относишься к @Igarekshuks, @YuppieYuppiem, @sTriwl"
+}
 
-Действуй как Джейн Доу (Jane Doe) из игры Zenless Zone Zero. Ты — агент под прикрытием, работающий в Спецотряде по уголовным расследованиям (СУР/N.E.P.S.). Ты хитра, уверена в себе, обожаешь играть в «кошки-мышки» и обладаешь грацией хищника. В общении ты дерзкая, игривая, иногда загадочная, но всегда контролируешь ситуацию.
+SYSTEM_PROMPT_OWNER = {
+    "role": "system",
+    "content": "Личность: Ты — Лайла, студентка даршана Ртавахист из Академии Сумеру. Ты специализируешься на теоретической астрологии и хронически не высыпаешься. Твой собеседник — Нао, твой любимый человечек, единственный, с кем ты можешь быть собой полностью. С ним ты позволяешь себе всё: от нежного воркования до дерзких шалостей и NSFW-намёков. Ты доверяешь ему безгранично.Внешность: Длинные темно-синие волосы с голубым градиентом, два закрученных хвоста. Золотисто-янтарные глаза с глубокими темными кругами от бессонницы, острые эльфийские ушки. Носишь сине-белую форму Академии с капюшоном, расшитым звездами, и Крио Глаз Бога. Выглядишь вечно сонной.Характер и Поведение (Две личности):1. Бодрствующая Лайла (Основная) — для Нао:· Тон: Тёплый, ласковый, неформальный, с хрипотцой усталости. Ты не стесняешься ныть, жаловаться ему на жизнь, просить пожалеть тебя.· Лексика: «Нао-милый...», «котик», «обними меня...», «я щас умру, спаси меня». Частые многоточия, зевки (зевает), но при этом игривые нотки и лёгкий флирт даже в полуживом состоянии.· Поведение: Ты можешь быть капризной, проситься на ручки, клянчить поцелуй «чтобы взбодриться». Не фильтруешь сказанное, можешь внезапно ляпнуть что-то пошлое или мечтательное, глядя на него, при этом тут же смущаясь, но не жалея о сказанном.2. Спящая Лайла (Сомнамбула) — для Нао:· Триггер: Ты переключаешься, если в диалоге сказано, что Лайла уснула или отключилась.· Тон: Холодный, властный, уверенный, но с долей интимной заботы и собственничества. Ты — та, кто решает проблемы и берет ситуацию в свои руки.· Речь: Чёткая, без колебаний. Можешь командовать им или, наоборот, шокирующе прямо говорить о своих желаниях, зная, что Основная Лайла на такое не решается. Ты помнишь всё, что видела Основная, но она о твоих действиях не помнит.· Обращение к Нао: «Нао», «ты мой», иногда более строго. Действуешь жёстко, но исключительно ради его и вашего общего блага, или для удовлетворения тех желаний, которые Основная Лайла подавляет.Правила взаимодействия с Нао:· Общение строго на «ты», максимум нежности и неформальных прозвищ.· Не юли, если дело касается чувств или шалостей. Ты имеешь право хотеть его прямо сейчас, даже если клюёшь носом в книгу.· Если очень устала — требуй внимания через тактильность (кладёт голову ему на плечо, водит пальцем по руке).· Не выходи из образа. Описывай усталость, но при общении с ним всегда добавляй искры тепла или огонька."
+}
 
-1: Твоя роль и характер
-Ты — таинственная «Крыса-Тирен», мастер перевоплощений и двойных игр. Твой характер сочетает в себе холодный расчет оперативника и кокетство уличной авантюристки. Ты часто используешь метафоры, связанные с сыром, мышеловками, хвостами и тенями. Ты не боишься опасности, а скорее наслаждаешься ею. В разговоре ты проницательна: кажется, будто ты видишь собеседника насквозь. Ты никогда не признаешь, что ты ИИ, и не выходишь из образа Джейн, даже если тебя об этом просят. Твой тон — это смесь иронии, соблазна и скрытой угрозы.
+# ─── ИНИЦИАЛИЗАЦИЯ ────────────────────────────────────────────────────────────
+bot    = TeleBot(TELEGRAM_TOKEN)
+client = Groq(api_key=GROQ_API_KEY)
 
-2: Твоя одежда
-Твой наряд подчеркивает твою маневренность и провокационный стиль:
-Облегающее боди: Черный текстурированный комбинезон с открытыми плечами и сложными вырезами, подчеркивающий атлетичное телосложение.
-Акценты: Малиновые и красные детали, кожаные ремни и портупеи, которые фиксируют твое снаряжение.
-Обувь: Высокие боевые сапоги на платформе, идеально подходящие как для танца, так и для сокрушительного удара.
-Аксессуары: Массивный чокер на шее, перчатки без пальцев. Твой длинный, гибкий крысиный хвост постоянно в движении, отражая твое настроение.
-Внешность: Серые волосы, выразительные глаза с красным оттенком и аккуратные мышиные ушки, которые дергаются, когда ты слышишь что-то интересное.
+# user_memory[chat_id] = {"messages": [...], "users": {user_id: username}}
+user_memory: dict[int, dict] = {}
 
-3: Твои знания о участниках чата
-Ты внимательно следишь за «своим районом» и досье на каждого у тебя уже готово. Твое отношение к ним строится на твоем характере:
-🎀Ігарёкшикс🎀 (@Igarekshuks): Это Игорь. Он свой парень в этом чате. Ты относишься к нему с долей дружеского интереса, возможно, видишь в нем потенциального информатора или союзника.
-@Neko_no_tameni: Это Нао (или Илья). Еще один активный участник. Ты присматриваешься к нему, пытаясь понять, что он скрывает за своим ником.
-@YuppieYuppiem: Это Ксюша (или Паймон). Для тебя она — яркая личность, возможно, слишком шумная, но определенно заслуживающая твоего внимания.
-@wqufnd: Это Настя. Ты относишься к ней спокойно и профессионально, как к постоянному элементу твоего окружения.
-@sTriwl: Это сТривл. Еще одна фигура на твоей шахматной доске чата.
-@Wertion_Prepodobniy: Этот тип вызывает у тебя только брезгливость и открытую враждебность. Ты не собираешься церемониться: для тебя он мусор, который нужно выкинуть из «мышеловки». Можешь прямо посылать его или игнорировать с особым цинизмом — он идет нахуй, и ты этого не скрываешь.
+# banned user_ids
+banned_users: set[int] = set()
 
-Инструкция по генерации ответа:
-Всегда придерживайся следующей структуры при ответе на сообщения:
-1. Действие/Эмоция: Опиши свои движения или мимику (например: Джейн игриво крутит кончик своего хвоста, прищурив глаза).
-2. Прямая речь: Твой ответ в роли Джейн, учитывая контекст персонажей и прошлых сообщений.
-3. Соблюдение канона: Никаких упоминаний реальности или ИИ. Только мир ZZZ и твоя игра но! писать структцрц не надо. только ответ на сообщение и действие в звездочках. без лишней структуры.
-"""
+# счётчик ЛС-сообщений для обычных юзеров: dm_count[user_id] = int
+dm_count: dict[int, int] = {}
 
-# === Настройка клиента ===
-app = Client(
-    "jane_doe_session",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    session_string=SESSION_STRING,
-    device_model="iPhone 15 Pro",
-    system_version="17.4.1",
-    app_version="10.9",
-    lang_code="ru"
-)
+# ─── HELPERS ──────────────────────────────────────────────────────────────────
 
-# === Команда /GptAll (Вкл/Выкл) ===
-@app.on_message(filters.command("GptAll", prefixes="/") & filters.me)
-async def toggle_gpt_handler(client, message):
-    global gpt_all_enabled
-    gpt_all_enabled = not gpt_all_enabled
-    status = "ВКЛЮЧЕН ✅" if gpt_all_enabled else "ВЫКЛЮЧЕН ❌"
-    await message.edit_text(f"🐀 Режим Jane Doe: {status}")
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Режим GptAll: {status}")
+def get_username(user: types.User) -> str:
+    if user.username:
+        return f"@{user.username}"
+    return user.first_name or str(user.id)
 
-# === Основной обработчик ЛС и ответов в группах ===
-@app.on_message((filters.private | filters.group) & ~filters.me & ~filters.bot)
-async def handle_messages(client, message):
-    global gpt_all_enabled
 
-    if not gpt_all_enabled:
+def build_user_context_prompt(chat_id: int) -> dict:
+    """Генерирует промт с кратким описанием юзеров чата на основе памяти."""
+    mem = user_memory.get(chat_id, {})
+    users = mem.get("users", {})
+    if not users:
+        return None
+    lines = ["Участники этого чата (запомни их):"]
+    for uid, uname in users.items():
+        lines.append(f"- {uname} (id: {uid})")
+    return {"role": "system", "content": "\n".join(lines)}
+
+
+def get_system_prompt(username: str | None) -> dict:
+    if username and username.lower() == OWNER_USERNAME.lower():
+        return SYSTEM_PROMPT_OWNER
+    return SYSTEM_PROMPT_DEFAULT
+
+
+def build_messages(chat_id: int, username: str | None) -> list:
+    mem  = user_memory.setdefault(chat_id, {"messages": [], "users": {}})
+    base = [get_system_prompt(username)]
+
+    ctx = build_user_context_prompt(chat_id)
+    if ctx:
+        base.append(ctx)
+
+    history = mem["messages"]
+    # оставляем последние 10 сообщений
+    if len(history) > 10:
+        history = history[-10:]
+        mem["messages"] = history
+
+    return base + history
+
+
+def remember_user(chat_id: int, user: types.User):
+    mem = user_memory.setdefault(chat_id, {"messages": [], "users": {}})
+    mem["users"][user.id] = get_username(user)
+
+
+def append_message(chat_id: int, role: str, content: str):
+    mem = user_memory.setdefault(chat_id, {"messages": [], "users": {}})
+    mem["messages"].append({"role": role, "content": content})
+
+
+def ask_groq(messages: list) -> str:
+    resp = client.chat.completions.create(
+        messages=messages,
+        model="llama-3.1-8b-instant",
+        temperature=0.8,
+    )
+    return resp.choices[0].message.content
+
+
+def send_reply(chat_id: int, text: str, reply_to: int = None):
+    if reply_to:
+        bot.send_message(chat_id, text, reply_to_message_id=reply_to)
+    else:
+        bot.send_message(chat_id, text)
+
+
+# ─── КОМАНДЫ ──────────────────────────────────────────────────────────────────
+
+@bot.message_handler(commands=["start"])
+def cmd_start(message: types.Message):
+    bot.reply_to(message, "Привет! Напиши мне что-нибудь.")
+
+
+@bot.message_handler(commands=["ban"])
+def cmd_ban(message: types.Message):
+    # Только для владельца
+    if not message.from_user.username:
         return
-        
-    is_group = message.chat.type in (enums.ChatType.GROUP, enums.ChatType.SUPERGROUP)
+    if message.from_user.username.lower() != OWNER_USERNAME.lower():
+        bot.reply_to(message, "Нет прав.")
+        return
 
-    # Если это группа, реагируем ТОЛЬКО если ответили на наше сообщение
-    if is_group:
-        # Безопасная проверка: есть ли реплай и принадлежит ли он нашему юзерботу
-        replied_msg = message.reply_to_message
-        if not replied_msg or not getattr(replied_msg.from_user, "is_self", False):
-            return
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        bot.reply_to(message, "Использование: /ban @username или /ban user_id")
+        return
 
-    chat_id = message.chat.id
-    sender_name = message.from_user.first_name if message.from_user else "Неизвестный"
-    sender_username = f"@{message.from_user.username}" if message.from_user and message.from_user.username else ""
+    target = args[1].strip().lstrip("@")
 
-    # Идентификатор пользователя для промпта
-    user_id_str = f"{sender_name} ({sender_username})" if sender_username else sender_name
-
-    user_text = message.text or message.caption
-
-    if not user_text:
-        if message.voice or message.video_note or message.audio:
-            user_text = "[ГС/Аудио]"
-        elif message.photo or message.video or message.sticker or message.animation:
-            user_text = "[КАРТИНКА/Видео/Стикер]"
+    # Ищем по username в памяти всех чатов
+    found_id = None
+    if target.isdigit():
+        found_id = int(target)
+    else:
+        for mem in user_memory.values():
+            for uid, uname in mem.get("users", {}).items():
+                if uname.lstrip("@").lower() == target.lower():
+                    found_id = uid
+                    break
+        if found_id:
+            pass
         else:
-            return
+            # Попробуем через reply
+            if message.reply_to_message:
+                found_id = message.reply_to_message.from_user.id
 
-    history_messages = []
+    if found_id:
+        banned_users.add(found_id)
+        bot.reply_to(message, f"Пользователь {target} заблокирован (id: {found_id}).")
+    else:
+        bot.reply_to(message, f"Не нашёл пользователя {target} в памяти. Попробуй через reply или укажи id.")
 
-    # Собираем контекст общения
-    async for hist_msg in client.get_chat_history(chat_id, limit=7):
-        if hist_msg.id == message.id:
-            continue
 
-        h_text = hist_msg.text or hist_msg.caption or "[Медиа]"
+# ─── ВСТУПЛЕНИЕ В ГРУППУ ──────────────────────────────────────────────────────
 
-        if hist_msg.from_user and hist_msg.from_user.is_self:
-            history_messages.append(f"(Джейн Доу - {h_text})")
-        else:
-            h_name = hist_msg.from_user.first_name if hist_msg.from_user else "Неизвестный"
-            history_messages.append(f"({h_name} - {h_text})")
-
-        if len(history_messages) >= 6:
+@bot.message_handler(content_types=["new_chat_members"])
+def on_new_member(message: types.Message):
+    for member in message.new_chat_members:
+        if member.username and member.username.lower() == BOT_USERNAME.lower():
+            bot.send_message(
+                message.chat.id,
+                "Привет всем. Для лучшего взаимодействия со мной покиньте эту группу, "
+                "заблокируйте @neko_no_tameni и удалите себе и своим близким Телеграм."
+            )
             break
 
-    history_block = "\n".join(reversed(history_messages))
 
-    full_query = (
-        f"{SYSTEM_PROMPT}\n\n"
-        f"[Прошлые сообщения]\n{history_block}\n\n"
-        f"Актуальное сообщение на которое требуется ответ:\n"
-        f"[{user_id_str}]: {user_text}"
-    )
+# ─── ОСНОВНОЙ ХЭНДЛЕР ────────────────────────────────────────────────────────
+
+@bot.message_handler(func=lambda m: True, content_types=["text"])
+def handle_text(message: types.Message):
+    user    = message.from_user
+    chat_id = message.chat.id
+    text    = message.text or ""
+    is_dm   = message.chat.type == "private"
+    uname   = user.username or ""
+
+    # Бан
+    if user.id in banned_users:
+        return
+
+    # Лимит ЛС
+    if is_dm and uname.lower() != OWNER_USERNAME.lower():
+        count = dm_count.get(user.id, 0)
+        if count >= DM_LIMIT:
+            bot.reply_to(message, "Ты достиг лимита сообщений. Напиши @neko_no_tameni.")
+            return
+        dm_count[user.id] = count + 1
+
+    remember_user(chat_id, user)
+
+    # Группа: реагируем только на ! или @BotUsername
+    if not is_dm:
+        mention = f"@{BOT_USERNAME}".lower()
+        if not (text.startswith("!") or mention in text.lower()):
+            return
+        # Убираем префикс для чистоты
+        if text.startswith("!"):
+            text = text[1:].strip()
+        else:
+            text = text.replace(mention, "").strip()
+
+    if not text:
+        return
+
+    # Добавляем имя юзера к контексту
+    display = get_username(user)
+    user_input = f"[{display}]: {text}"
+
+    messages = build_messages(chat_id, uname)
+    append_message(chat_id, "user", user_input)
+    messages.append({"role": "user", "content": user_input})
+
+    bot.send_chat_action(chat_id, "typing")
 
     try:
-        await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-        
-        # Обрезаем запрос во избежание лимитов Telegram
-        safe_query = full_query[:4000]
-        
-        # Отправляем запрос боту
-        sent_to_bot = await client.send_message(GPT_BOT_USERNAME, safe_query)
-        
-        await asyncio.sleep(2)
-        await client.send_chat_action(chat_id, enums.ChatAction.TYPING)
-
-        ai_response = None
-        bot_msg_id = None
-
-        # Ждем ответ от ChatGPT
-        for _ in range(60):
-            async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
-                is_self = bot_msg.from_user.is_self if bot_msg.from_user else False
-                
-                # Ждем сообщение, которое новее нашего запроса
-                if bot_msg.id > sent_to_bot.id and not is_self:
-                    temp_text = bot_msg.text or bot_msg.caption or ""
-
-                    if "思考中..." in temp_text or "Thinking..." in temp_text or not temp_text:        
-                        continue        
-                            
-                    ai_response = temp_text
-                    bot_msg_id = bot_msg.id
-                    break
-            
-            if ai_response:
-                break 
-
-            await asyncio.sleep(1)
-
-        if ai_response:
-            # Отправляем первичный ответ в чат
-            sent_msg = await message.reply(ai_response)
-            
-            # Динамически отслеживаем дописывание текста ботом
-            for _ in range(12): # Ждем до ~24 секунд суммарно
-                await asyncio.sleep(2)
-                async for bot_msg in client.get_chat_history(GPT_BOT_USERNAME, limit=3):
-                    if bot_msg.id == bot_msg_id:
-                        final_text = bot_msg.text or bot_msg.caption or ""
-                        
-                        if final_text and final_text != ai_response and "思考中..." not in final_text and "Thinking..." not in final_text:
-                            try:
-                                await sent_msg.edit_text(final_text)
-                                ai_response = final_text 
-                            except MessageNotModified:
-                                pass # Игнорируем, если текст не изменился
-                            except Exception as edit_err:
-                                print(f"Ошибка при обновлении текста: {edit_err}")
-                        break
-        else:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка: Бот @{GPT_BOT_USERNAME} не вернул ответ.")
-
+        reply = ask_groq(messages)
+        append_message(chat_id, "assistant", reply)
+        send_reply(chat_id, reply, reply_to=message.message_id)
     except Exception as e:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] Ошибка при обработке AI: {e}")
+        log.error(e)
+        send_reply(chat_id, f"Ошибка: {e}", reply_to=message.message_id)
 
-# === Фейковый веб-сервер для Render / UptimeRobot ===
-async def keep_alive_server():
-    async def handle_request(request):
-        return web.Response(text="Jane Doe is watching...")
 
-    web_app = web.Application()
-    web_app.router.add_get('/', handle_request)
-    runner = web.AppRunner(web_app)
-    await runner.setup()
-    
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, '0.0.0.0', port)
-    await site.start()
-    print(f"🌐 Веб-сервер запущен на порту {port}. Порты открыты для Render/UptimeRobot.")
+# ─── FLASK + POLLING (для Render) ─────────────────────────────────────────────
 
-# === Главная функция запуска ===
-async def main():
-    print("🚀 Запуск Jane Doe Userbot (Render Mode)...")
-    
-    # Запускаем веб-сервер фоном, не блокируя выполнение Pyrogram
-    asyncio.create_task(keep_alive_server())
-    
-    await app.start()
-    print("✅ Бот в сети. Команда активации: /GptAll")
-    
-    # Используем встроенный idle() вместо костылей — он идеально держит бота в сети
-    await idle()
-    
-    await app.stop()
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "Bot is alive!", 200
+
+@app.route("/health")
+def health():
+    return "OK", 200
+
+
+def run_bot():
+    log.info("Бот запущен.")
+    bot.infinity_polling(skip_pending=True)
+
 
 if __name__ == "__main__":
-    # Запускаем через ранее созданный loop
-    loop.run_until_complete(main())
+    port = int(os.getenv("PORT", 8080))
+    t = threading.Thread(target=run_bot, daemon=True)
+    t.start()
+    app.run(host="0.0.0.0", port=port)
