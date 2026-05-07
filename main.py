@@ -17,7 +17,7 @@ GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 OWNER_USERNAME = "neko_no_tameni"
 BOT_USERNAME   = "Lay_LaBot"
 
-DM_LIMIT = 10
+DM_LIMIT = 270
 
 # ─── ПРОМТЫ ───────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT_DEFAULT = {
