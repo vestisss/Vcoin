@@ -17,7 +17,7 @@ GROQ_API_KEY   = os.getenv("GROQ_API_KEY")
 OWNER_USERNAME = "neko_no_tameni"
 BOT_USERNAME   = "Lay_LaBot"
 
-DM_LIMIT = 270
+DM_LIMIT = 190
 
 # ─── ПРОМТЫ ───────────────────────────────────────────────────────────────────
 SYSTEM_PROMPT_DEFAULT = {
@@ -95,7 +95,7 @@ def append_message(chat_id: int, role: str, content: str):
 def ask_groq(messages: list) -> str:
     resp = client.chat.completions.create(
         messages=messages,
-        model="llama-3.1-8b-instant",
+        model="llama-3.3-70b-versatile",
         temperature=0.8,
     )
     return resp.choices[0].message.content
